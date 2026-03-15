@@ -6,18 +6,30 @@ use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class TeacherController extends Controller
 {
+
+    /**
+     * Solo el admin puede gestionar profesores
+     */
+    private function soloAdmin(): void
+    {
+        abort_if(!Auth::user()->esAdmin(), 403, 'Solo el administrador puede gestionar profesores.');
+    }
+
     /**
      * Listado de profesores
      */
     public function index()
     {
+        // Profesores pueden ver el listado pero no crear/editar/eliminar
         $teachers = Teacher::with('user')->orderBy('apellidos')->paginate(15);
+        $esAdmin  = Auth::user()->esAdmin();
 
-        return view('teachers.index', compact('teachers'));
+        return view('teachers.index', compact('teachers', 'esAdmin'));
     }
 
     /**
@@ -25,9 +37,8 @@ class TeacherController extends Controller
      */
     public function create()
     {
-        // Usuarios sin teacher asignado aún
-        $users = User::doesntHave('teacher')->get();
-
+        $this->soloAdmin();
+        $users = User::doesntHave('teacher')->where('role', 'profesor')->get();
         return view('teachers.create', compact('users'));
     }
 
@@ -36,6 +47,7 @@ class TeacherController extends Controller
      */
     public function store(Request $request)
     {
+        $this->soloAdmin();
         $validated = $request->validate([
             'nombre'       => 'required|string|max:100',
             'apellidos'    => 'required|string|max:100',
@@ -57,6 +69,7 @@ class TeacherController extends Controller
      */
     public function edit(Teacher $teacher)
     {
+        $this->soloAdmin();
         // Usuarios libres + el usuario actual del teacher
         $users = User::doesntHave('teacher')
                      ->orWhere('id', $teacher->user_id)
@@ -70,6 +83,7 @@ class TeacherController extends Controller
      */
     public function update(Request $request, Teacher $teacher)
     {
+        $this->soloAdmin();
         $validated = $request->validate([
             'nombre'       => 'required|string|max:100',
             'apellidos'    => 'required|string|max:100',
@@ -92,6 +106,7 @@ class TeacherController extends Controller
      */
     public function destroy(Teacher $teacher)
     {
+        $this->soloAdmin();
         // Protección: no eliminar si tiene partes asociados
         if ($teacher->partes()->exists()) {
             return redirect()->route('teachers.index')

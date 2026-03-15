@@ -13,43 +13,56 @@ use App\Mail\ParteMail;
 class ParteController extends Controller
 {
     /**
-     * Obtiene el teacher vinculado al usuario autenticado
+     * Devuelve el teacher del usuario autenticado.
+     * El admin no tiene teacher propio, devuelve null.
      */
-    private function getTeacherAutenticado(): Teacher
+    private function getTeacherAutenticado(): ?Teacher
     {
+        if (Auth::user()->esAdmin()) {
+            return null;
+        }
+
         return Teacher::where('user_id', Auth::id())->firstOrFail();
     }
 
     /**
-     * Listado de partes
-     * El profesor solo ve sus propios partes
+     * Listado — admin ve todo, profesor solo los suyos
      */
     public function index(Request $request)
     {
+        $esAdmin = Auth::user()->esAdmin();
         $teacher = $this->getTeacherAutenticado();
 
-        $query = Parte::with(['alumno', 'teacher'])
-                      ->delProfesor($teacher->id);
+        $query = Parte::with(['alumno', 'teacher']);
 
-        // Filtro por tipo
+        // Si es profesor, filtrar solo sus partes
+        if (!$esAdmin) {
+            $query->delProfesor($teacher->id);
+        }
+
+        // Filtros opcionales
         if ($request->filled('tipo')) {
             $query->tipo($request->tipo);
         }
 
-        // Filtro por alumno
         if ($request->filled('alumno_id')) {
             $query->where('alumno_id', $request->alumno_id);
         }
 
-        $partes  = $query->orderByDesc('fecha')->paginate(15);
-        $alumnos = Alumno::orderBy('apellidos')->get();
+        // Admin puede filtrar además por profesor
+        if ($esAdmin && $request->filled('teacher_id')) {
+            $query->where('teacher_id', $request->teacher_id);
+        }
 
-        return view('partes.index', compact('partes', 'alumnos'));
+        $partes   = $query->orderByDesc('fecha')->paginate(15);
+        $alumnos  = Alumno::orderBy('apellidos')->get();
+        $teachers = $esAdmin ? Teacher::orderBy('apellidos')->get() : collect();
+
+        return view('partes.index', compact('partes', 'alumnos', 'teachers', 'esAdmin'));
     }
 
     /**
-     * Formulario para crear un parte
-     * Puede recibir alumno_id desde la vista de alumnos
+     * Formulario de creación
      */
     public function create(Request $request)
     {
@@ -58,25 +71,39 @@ class ParteController extends Controller
                             ? Alumno::findOrFail($request->alumno_id)
                             : null;
 
-        return view('partes.create', compact('alumnos', 'alumnoSelecto'));
+        // Admin puede elegir en nombre de qué profesor crea el parte
+        $teachers = Auth::user()->esAdmin()
+                        ? Teacher::orderBy('apellidos')->get()
+                        : collect();
+
+        return view('partes.create', compact('alumnos', 'alumnoSelecto', 'teachers'));
     }
 
     /**
-     * Guardar nuevo parte (Requisito A)
+     * Guardar nuevo parte
      */
     public function store(Request $request)
     {
-        $teacher = $this->getTeacherAutenticado();
+        $esAdmin = Auth::user()->esAdmin();
 
-        $validated = $request->validate([
+        $rules = [
             'alumno_id'   => 'required|exists:alumnos,id',
             'descripcion' => 'required|string|max:1000',
             'fecha'       => 'required|date',
             'tipo'        => 'required|in:leve,grave,muy_grave',
-        ]);
+        ];
 
-        // El teacher_id se asigna automáticamente desde la sesión
-        $validated['teacher_id'] = $teacher->id;
+        // Admin debe seleccionar el profesor manualmente
+        if ($esAdmin) {
+            $rules['teacher_id'] = 'required|exists:teachers,id';
+        }
+
+        $validated = $request->validate($rules);
+
+        // Si es profesor, asignar su teacher automáticamente
+        if (!$esAdmin) {
+            $validated['teacher_id'] = $this->getTeacherAutenticado()->id;
+        }
 
         Parte::create($validated);
 
@@ -85,12 +112,11 @@ class ParteController extends Controller
     }
 
     /**
-     * Ver detalle de un parte
+     * Ver detalle
      */
     public function show(Parte $parte)
     {
         $this->autorizarAcceso($parte);
-
         $parte->load(['alumno', 'teacher.user']);
 
         return view('partes.show', compact('parte'));
@@ -102,10 +128,12 @@ class ParteController extends Controller
     public function edit(Parte $parte)
     {
         $this->autorizarAcceso($parte);
+        $alumnos  = Alumno::orderBy('apellidos')->get();
+        $teachers = Auth::user()->esAdmin()
+                        ? Teacher::orderBy('apellidos')->get()
+                        : collect();
 
-        $alumnos = Alumno::orderBy('apellidos')->get();
-
-        return view('partes.edit', compact('parte', 'alumnos'));
+        return view('partes.edit', compact('parte', 'alumnos', 'teachers'));
     }
 
     /**
@@ -115,12 +143,18 @@ class ParteController extends Controller
     {
         $this->autorizarAcceso($parte);
 
-        $validated = $request->validate([
+        $rules = [
             'alumno_id'   => 'required|exists:alumnos,id',
             'descripcion' => 'required|string|max:1000',
             'fecha'       => 'required|date',
             'tipo'        => 'required|in:leve,grave,muy_grave',
-        ]);
+        ];
+
+        if (Auth::user()->esAdmin()) {
+            $rules['teacher_id'] = 'required|exists:teachers,id';
+        }
+
+        $validated = $request->validate($rules);
 
         $parte->update($validated);
 
@@ -134,7 +168,6 @@ class ParteController extends Controller
     public function destroy(Parte $parte)
     {
         $this->autorizarAcceso($parte);
-
         $parte->delete();
 
         return redirect()->route('partes.index')
@@ -142,19 +175,15 @@ class ParteController extends Controller
     }
 
     /**
-     * Enviar el parte por correo al tutor del alumno
+     * Enviar correo al tutor
      */
     public function enviarEmail(Parte $parte)
     {
         $this->autorizarAcceso($parte);
-
         $parte->load(['alumno', 'teacher']);
 
-        // Enviar correo al email_tutor del alumno
-        Mail::to($parte->alumno->email_tutor)
-            ->send(new ParteMail($parte));
+        Mail::to($parte->alumno->email_tutor)->send(new ParteMail($parte));
 
-        // Marcar como enviado
         $parte->update([
             'email_enviado'    => true,
             'email_enviado_at' => now(),
@@ -165,12 +194,16 @@ class ParteController extends Controller
     }
 
     /**
-     * Solo el profesor que creó el parte puede acceder a él
+     * Admin accede a cualquier parte.
+     * Profesor solo a los suyos.
      */
     private function autorizarAcceso(Parte $parte): void
     {
-        $teacher = $this->getTeacherAutenticado();
+        if (Auth::user()->esAdmin()) {
+            return;
+        }
 
+        $teacher = $this->getTeacherAutenticado();
         abort_if($parte->teacher_id !== $teacher->id, 403, 'No tienes permiso para acceder a este parte.');
     }
 }

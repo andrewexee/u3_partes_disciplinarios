@@ -243,6 +243,11 @@
         <a href="{{ route('teachers.index') }}" class="{{ request()->routeIs('teachers.*') ? 'active' : '' }}">Profesores</a>
     </div>
     <div class="nav-user">
+        @if(Auth::user()->esAdmin())
+            <span style="background:var(--accent);color:#fff;padding:.2rem .6rem;border-radius:10px;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase">
+                Admin
+            </span>
+        @endif
         <span>Conectado como <strong>{{ Auth::user()->name }}</strong></span>
         <form method="POST" action="{{ route('logout') }}">
             @csrf

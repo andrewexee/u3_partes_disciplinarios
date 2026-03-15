@@ -20,6 +20,7 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'role',
         'password',
     ];
 
@@ -56,11 +57,28 @@ class User extends Authenticatable
         return $this->hasOne(Teacher::class, 'user_id');
     }
 
+
+    /**
+     * Comprueba si el usuario tiene perfil de admin
+     */
+    public function esAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
     /**
      * Comprueba si el usuario tiene perfil de profesor
      */
     public function esProfesor(): bool
     {
-        return $this->teacher()->exists();
+        return $this->role === 'profesor' && $this->teacher()->exists();
+    }
+
+    /**
+     * Puede acceder a la aplicación si es admin O si es profesor con perfil
+     */
+    public function puedeAcceder(): bool
+    {
+        return $this->esAdmin() || $this->esProfesor();
     }
 }

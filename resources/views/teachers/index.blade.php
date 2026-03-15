@@ -7,7 +7,9 @@
         <h1>Profesores</h1>
         <div class="breadcrumb">Gestión del profesorado</div>
     </div>
-    <a href="{{ route('teachers.create') }}" class="btn btn-primary">+ Nuevo profesor</a>
+    @if($esAdmin)
+        <a href="{{ route('teachers.create') }}" class="btn btn-primary">+ Nuevo profesor</a>
+    @endif
 </div>
 
 <div class="card">
@@ -16,7 +18,13 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                    <tr><th>Profesor</th><th>Especialidad</th><th>Usuario</th><th>Partes creados</th><th></th></tr>
+                    <tr>
+                        <th>Profesor</th>
+                        <th>Especialidad</th>
+                        <th>Usuario</th>
+                        <th>Partes creados</th>
+                        @if($esAdmin)<th>Acciones</th>@endif
+                    </tr>
                 </thead>
                 <tbody>
                 @forelse($teachers as $teacher)
@@ -25,6 +33,7 @@
                         <td>{{ $teacher->especialidad ?? '—' }}</td>
                         <td>{{ $teacher->user->email }}</td>
                         <td>{{ $teacher->partes->count() }}</td>
+                        @if($esAdmin)
                         <td>
                             <div class="actions">
                                 <a href="{{ route('teachers.edit', $teacher) }}" class="btn btn-outline btn-sm">Editar</a>
@@ -35,9 +44,14 @@
                                 </form>
                             </div>
                         </td>
+                        @endif
                     </tr>
                 @empty
-                    <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:2rem">No hay profesores registrados.</td></tr>
+                    <tr>
+                        <td colspan="{{ $esAdmin ? 5 : 4 }}" style="text-align:center;color:var(--muted);padding:2rem">
+                            No hay profesores registrados.
+                        </td>
+                    </tr>
                 @endforelse
                 </tbody>
             </table>
