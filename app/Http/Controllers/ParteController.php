@@ -35,12 +35,10 @@ class ParteController extends Controller
 
         $query = Parte::with(['alumno', 'teacher']);
 
-        // Si es profesor, filtrar solo sus partes
         if (!$esAdmin) {
             $query->delProfesor($teacher->id);
         }
 
-        // Filtros opcionales
         if ($request->filled('tipo')) {
             $query->tipo($request->tipo);
         }
@@ -49,7 +47,6 @@ class ParteController extends Controller
             $query->where('alumno_id', $request->alumno_id);
         }
 
-        // Admin puede filtrar además por profesor
         if ($esAdmin && $request->filled('teacher_id')) {
             $query->where('teacher_id', $request->teacher_id);
         }
@@ -66,17 +63,14 @@ class ParteController extends Controller
      */
     public function create(Request $request)
     {
+        $esAdmin       = Auth::user()->esAdmin();
         $alumnos       = Alumno::orderBy('apellidos')->get();
         $alumnoSelecto = $request->filled('alumno_id')
                             ? Alumno::findOrFail($request->alumno_id)
                             : null;
+        $teachers      = $esAdmin ? Teacher::orderBy('apellidos')->get() : collect();
 
-        // Admin puede elegir en nombre de qué profesor crea el parte
-        $teachers = Auth::user()->esAdmin()
-                        ? Teacher::orderBy('apellidos')->get()
-                        : collect();
-
-        return view('partes.create', compact('alumnos', 'alumnoSelecto', 'teachers'));
+        return view('partes.create', compact('alumnos', 'alumnoSelecto', 'teachers', 'esAdmin'));
     }
 
     /**
@@ -98,7 +92,10 @@ class ParteController extends Controller
             $rules['teacher_id'] = 'required|exists:teachers,id';
         }
 
-        $validated = $request->validate($rules);
+        $validated = $request->validate($rules, [
+            'teacher_id.required' => 'Debes seleccionar el profesor que emite el parte.',
+            'alumno_id.required'  => 'Debes seleccionar un alumno.',
+        ]);
 
         // Si es profesor, asignar su teacher automáticamente
         if (!$esAdmin) {
@@ -128,12 +125,12 @@ class ParteController extends Controller
     public function edit(Parte $parte)
     {
         $this->autorizarAcceso($parte);
-        $alumnos  = Alumno::orderBy('apellidos')->get();
-        $teachers = Auth::user()->esAdmin()
-                        ? Teacher::orderBy('apellidos')->get()
-                        : collect();
 
-        return view('partes.edit', compact('parte', 'alumnos', 'teachers'));
+        $esAdmin  = Auth::user()->esAdmin();
+        $alumnos  = Alumno::orderBy('apellidos')->get();
+        $teachers = $esAdmin ? Teacher::orderBy('apellidos')->get() : collect();
+
+        return view('partes.edit', compact('parte', 'alumnos', 'teachers', 'esAdmin'));
     }
 
     /**
@@ -143,6 +140,8 @@ class ParteController extends Controller
     {
         $this->autorizarAcceso($parte);
 
+        $esAdmin = Auth::user()->esAdmin();
+
         $rules = [
             'alumno_id'   => 'required|exists:alumnos,id',
             'descripcion' => 'required|string|max:1000',
@@ -150,11 +149,18 @@ class ParteController extends Controller
             'tipo'        => 'required|in:leve,grave,muy_grave',
         ];
 
-        if (Auth::user()->esAdmin()) {
+        if ($esAdmin) {
             $rules['teacher_id'] = 'required|exists:teachers,id';
         }
 
-        $validated = $request->validate($rules);
+        $validated = $request->validate($rules, [
+            'teacher_id.required' => 'Debes seleccionar el profesor que emite el parte.',
+        ]);
+
+        // Si es profesor, mantener su teacher_id original
+        if (!$esAdmin) {
+            $validated['teacher_id'] = $parte->teacher_id;
+        }
 
         $parte->update($validated);
 
@@ -194,8 +200,7 @@ class ParteController extends Controller
     }
 
     /**
-     * Admin accede a cualquier parte.
-     * Profesor solo a los suyos.
+     * Admin accede a cualquier parte, profesor solo a los suyos
      */
     private function autorizarAcceso(Parte $parte): void
     {
