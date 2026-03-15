@@ -45,4 +45,22 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    // Relación inversa con Teacher
+
+    /**
+     * Relación 1:1 — el usuario autenticado es un profesor
+     */
+    public function teacher()
+    {
+        return $this->hasOne(Teacher::class, 'user_id');
+    }
+
+    /**
+     * Comprueba si el usuario tiene perfil de profesor
+     */
+    public function esProfesor(): bool
+    {
+        return $this->teacher()->exists();
+    }
 }
